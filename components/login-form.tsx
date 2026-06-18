@@ -64,10 +64,10 @@ export function LoginForm({
   }
 
   const signInWith = async (strategy: OAuthStrategy) => {
-    const { error } = await signIn.create({
+    const { error } = await signIn.sso({
       strategy,
-      redirectUrl: '/sso-callback',
-      actionCompleteRedirectUrl: '/dashboard',
+      redirectCallbackUrl: '/sso-callback',
+      redirectUrl: '/dashboard',
     })
     if (error) {
       console.error(JSON.stringify(error, null, 2))
