@@ -82,13 +82,14 @@ export function SignupForm({
   }
 
   const signInWith = async (strategy: OAuthStrategy) => {
-    const { error } = await signIn.sso({
+    const { error } = await signIn.create({
       strategy,
-      redirectCallbackUrl: '/sso-callback',
-      redirectUrl: '/dashboard',
+      redirectUrl: '/sso-callback',
+      actionCompleteRedirectUrl: '/dashboard',
     })
     if (error) {
       console.error(JSON.stringify(error, null, 2))
+      toast.error(error.message || "Something went wrong. Please try again.")
       return
     }
   }
