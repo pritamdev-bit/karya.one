@@ -157,8 +157,8 @@ export default function DashboardPage() {
           />
         )}
         <CommandPanel
-          emails={emails.map((e) => ({ id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet }))}
-          events={allEvents.map((e) => ({ title: e.title, date: e.date, startTime: e.startTime, endTime: e.endTime }))}
+          emails={emails?.map((e) => ({ id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet }))}
+          events={allEvents?.map((e) => ({ title: e.title, date: e.date, startTime: e.startTime, endTime: e.endTime }))}
         />
         <CalendarPanel schedule={schedule} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
       </div>

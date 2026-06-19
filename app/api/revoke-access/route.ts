@@ -1,5 +1,5 @@
 import { corsair, db } from '@/src/server/corsair';
-import { corsairAccounts } from '@/src/server/db/schema';
+import { corsairAccounts, corsairEntities, corsairEvents } from '@/src/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
@@ -15,7 +15,19 @@ export async function POST() {
       );
     }
 
-    // Delete all corsair accounts for this user (removes Gmail and Google Calendar access)
+    // Get account IDs for this user
+    const accounts = await db
+      .select({ id: corsairAccounts.id })
+      .from(corsairAccounts)
+      .where(eq(corsairAccounts.tenantId, userId));
+
+    // Delete all child rows first
+    for (const account of accounts) {
+      await db.delete(corsairEntities).where(eq(corsairEntities.accountId, account.id));
+      await db.delete(corsairEvents).where(eq(corsairEvents.accountId, account.id));
+    }
+
+    // Now delete the accounts
     await db
       .delete(corsairAccounts)
       .where(eq(corsairAccounts.tenantId, userId));

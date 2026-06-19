@@ -1,10 +1,10 @@
 "use client"
 
-import { useUser } from "@clerk/nextjs"
+import { useUser, useClerk } from "@clerk/nextjs"
 import { Mail, CalendarDays, Sparkles, Link2, Shield, Check } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Suspense } from "react"
+import { Suspense, useState, useRef, useEffect } from "react"
 
 const features = [
   {
@@ -26,11 +26,25 @@ const features = [
 
 function OnboardingContent() {
   const { user } = useUser()
+  const { signOut } = useClerk()
   const searchParams = useSearchParams()
   const connected = searchParams.get("connected")
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [showTooltip, setShowTooltip] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const initials = user?.firstName?.charAt(0) || "U"
   const gmailConnected = connected === "gmail"
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   return (
     <div className="flex h-screen flex-col bg-[#f9f8f6]">
@@ -38,13 +52,43 @@ function OnboardingContent() {
       <header className="flex h-14 shrink-0 items-center justify-between bg-[#f9f8f6] px-6">
         <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight">
           <span className="flex size-8 items-center justify-center rounded-lg bg-black text-sm font-bold text-white">
-            ◎
+            <img src="favicon.ico" alt="Karya Logo" className="size-8 rounded-lg" />
           </span>
           KARYA.ONE
         </Link>
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-xs font-medium text-white">
-            {initials}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-xs font-medium text-white transition-opacity hover:opacity-80 cursor-pointer"
+            >
+              {initials}
+            </button>
+            {showTooltip && user?.emailAddresses?.[0]?.emailAddress && (
+              <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 whitespace-nowrap rounded-md bg-gray-900 px-3 py-1.5 text-xs text-white shadow-lg transition-all duration-300">
+                {user.emailAddresses[0].emailAddress}
+                <div className="absolute -top-1 right-3 h-2 w-2 rotate-45 bg-gray-900" />
+              </div>
+            )}
+            {menuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg transition-all duration-300">
+                <div className="border-b px-4 py-3">
+                  <p className="text-sm font-medium text-gray-900 truncate">{user?.fullName || "User"}</p>
+                  <p className="text-xs text-gray-500 truncate">{user?.emailAddresses?.[0]?.emailAddress}</p>
+                </div>
+                <button
+                  onClick={() => signOut({ redirectUrl: "/" })}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 transition-colors duration-300 hover:bg-gray-50 cursor-pointer"
+                >
+                  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                  </svg>
+                  Log out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -70,17 +114,7 @@ function OnboardingContent() {
                 {gmailConnected ? (
                   <Check className="h-8 w-8 text-green-600" />
                 ) : (
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none">
-                    <path
-                      d="M2 6C2 4.89543 2.89543 4 4 4H20C21.1046 4 22 4.89543 22 6V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V6Z"
-                      fill="#F1F1F1"
-                    />
-                    <path d="M22 6L12 13L2 6" stroke="#EA4335" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    <rect x="2" y="4" width="4" height="16" fill="#4285F4" rx="0" />
-                    <rect x="18" y="4" width="4" height="16" fill="#4285F4" rx="0" />
-                    <path d="M6 20V9L12 13L18 9V20" stroke="#34A853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M2 6L12 13L22 6" stroke="#EA4335" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <img src="/gmail.png" alt="Gmail Icon" className="h-8 w-8" />
                 )}
               </div>
               <span className="text-sm font-medium text-gray-900">Gmail</span>
@@ -94,15 +128,7 @@ function OnboardingContent() {
             {/* Google Calendar Icon */}
             <div className="flex flex-col items-center gap-2">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-gray-200 bg-white">
-                <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none">
-                  <rect x="3" y="4" width="18" height="18" rx="2" stroke="#4285F4" strokeWidth="2" />
-                  <path d="M3 10H21" stroke="#4285F4" strokeWidth="2" />
-                  <path d="M8 2V6" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" />
-                  <path d="M16 2V6" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" />
-                  <text x="12" y="18" textAnchor="middle" fill="#1A73E8" fontSize="8" fontWeight="600" fontFamily="Inter, sans-serif">
-                    31
-                  </text>
-                </svg>
+                <img src="/google-calendar-icon.png" alt="Google Calendar Icon" className="h-8 w-8" />
               </div>
               <span className="text-sm font-medium text-gray-900">Google Calendar</span>
             </div>
@@ -155,7 +181,7 @@ function OnboardingContent() {
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
               </svg>
-              Connect Gmail &amp; Google Calendar
+              Connect Gmail
             </a>
           )}
 

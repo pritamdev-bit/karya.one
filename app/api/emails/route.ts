@@ -15,28 +15,31 @@ export async function GET(request: NextRequest) {
     const { userId } = await auth();
     const searchParams = request.nextUrl.searchParams;
     const nextPageToken = searchParams.get("nextPageToken") ?? "";
+    const category = searchParams.get("category") ?? "";
+    const q = searchParams.get("q") ?? (category ? `category:${category}` : "category:primary");
 
     if (!userId) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { allowed } = checkRateLimit(userId, 10, 60_000);
+    const { allowed } = checkRateLimit(userId, 30, 60_000);
     if (!allowed) {
         return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 
-    const responseDBList = await corsair.withTenant(`${userId}`).gmail.db.messages.list({});
+    // When query is explicitly requested (tab/sidebar switch), always fetch from API
+    const isTabSwitch = searchParams.has("category") || searchParams.has("q");
+
+    const responseDBList = isTabSwitch ? [] : await corsair.withTenant(`${userId}`).gmail.db.messages.list({});
     const sortedResponseDBList = responseDBList.sort((a, b) => {
         return Number(b.data.internalDate) - Number(a.data.internalDate);
     })
 
-    // console.log(sortedResponseDBList)
-    const totalCount = await corsair.withTenant(`${userId}`).gmail.db.messages.count();
-
     if (responseDBList.length === 0 || nextPageToken) {
         const responseList = await corsair.withTenant(`${userId}`).gmail.api.messages.list({
-            maxResults: 30,
+            maxResults: 20,
             ...(nextPageToken && { pageToken: nextPageToken }),
+            q: q,
         });
         const data = responseList.messages ?? [];
         const NewNextPageToken = responseList.nextPageToken ?? "";
@@ -45,6 +48,7 @@ export async function GET(request: NextRequest) {
             data.map((element) =>
                 corsair.withTenant(`${userId}`).gmail.api.messages.get({
                     id: element.id as string,
+                    format: "metadata"
                 })
             )
         );
@@ -73,8 +77,9 @@ export async function GET(request: NextRequest) {
         await db.delete(corsairEntities);
         await db.delete(corsairEvents);
         const responseList = await corsair.withTenant(`${userId}`).gmail.api.messages.list({
-            maxResults: 30,
+            maxResults: 20,
             pageToken: nextPageToken,
+            q: q,
         });
 
         const data = responseList.messages ?? [];
@@ -84,6 +89,7 @@ export async function GET(request: NextRequest) {
             data.map((element) =>
                 corsair.withTenant(`${userId}`).gmail.api.messages.get({
                     id: element.id as string,
+                    format: "metadata"
                 })
             )
         );
@@ -104,6 +110,7 @@ export async function GET(request: NextRequest) {
             message: "Data is stale, refetching",
             emails,
             nextPageToken: NewNextPageToken,
+            // responseEmails
         });
     }
 
@@ -122,7 +129,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
         message: "Data is fresh",
         emails,
-        totalCount,
         nextPageToken: "",
     });
 

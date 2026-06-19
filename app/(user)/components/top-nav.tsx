@@ -19,10 +19,10 @@ export function TopNav({ selectedValue }: { selectedValue: string }) {
   const [selectedItem, setSelectedItem] = useState(selectedValue);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-white px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-white px-6">
       <div className="flex items-center gap-8">
         <div className="flex items-center gap-2">
-          <div className="flex size-6 items-center justify-center rounded-md bg-black text-white text-xs font-bold">
+          <div className="flex size-8 items-center justify-center rounded-md bg-gray-100 text-xs font-bold">
             <img src="favicon.ico" alt="logo" className="size-6 rounded-md" />
           </div>
           <span className="text-sm font-semibold tracking-tight">Karya.one</span>

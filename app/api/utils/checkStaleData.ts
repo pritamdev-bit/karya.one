@@ -1,6 +1,6 @@
 export function isStaleData(isoDateString: string) {
   const timestamp = new Date(isoDateString).getTime();
-  const fiveMinutes = 1000 * 60 * 5;
+  const threeMinutes = 1000 * 60 * 3;
 
-  return Date.now() - timestamp >= fiveMinutes;
+  return Date.now() - timestamp >= threeMinutes;
 }

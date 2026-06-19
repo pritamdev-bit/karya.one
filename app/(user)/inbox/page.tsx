@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { TopNav } from "../components/top-nav"
-import { CommandPanel } from "../components/command-panel"
+import { InboxCommandPanel } from "../components/inbox-command-panel"
 import { cn } from "@/lib/utils"
 import type { Email, CalendarEvent } from "../components/types"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -13,13 +13,13 @@ const PANEL_MAX = 600
 const PANEL_DEFAULT = 360
 
 const sidebarNav = [
-  { label: "Inbox", icon: "inbox" },
-  { label: "Starred", icon: "star" },
-  { label: "Snoozed", icon: "clock" },
-  { label: "Sent", icon: "send" },
-  { label: "Drafts", icon: "file" },
-  { label: "Purchases", icon: "receipt" },
-  { label: "More", icon: "chevron-down" },
+  { label: "Inbox", icon: "inbox", query: "category:primary" },
+  { label: "Starred", icon: "star", query: "is:starred" },
+  { label: "Snoozed", icon: "clock", query: "is:snoozed" },
+  { label: "Sent", icon: "send", query: "in:sent" },
+  { label: "Drafts", icon: "file", query: "in:draft" },
+  { label: "Purchases", icon: "receipt", query: "category:purchases" },
+  { label: "More", icon: "chevron-down", query: "" },
 ]
 
 const labels = [
@@ -77,35 +77,59 @@ export default function InboxPage() {
   const [activeNav, setActiveNav] = useState("Inbox")
   const [selectedEmails, setSelectedEmails] = useState<string[]>([])
   const [nextPageToken, setNextPageToken] = useState<string>("")
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [pageStack, setPageStack] = useState<{ emails: Email[]; token: string }[]>([])
+  const [isPaginating, setIsPaginating] = useState(false)
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT)
+  const [searchQuery, setSearchQuery] = useState("")
   const isDragging = useRef(false)
   const startX = useRef(0)
   const startWidth = useRef(PANEL_DEFAULT)
-  const listRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
+  const isInitialMount = useRef(true)
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
-    fetchEmails()
+    fetchEmails("category:primary")
     fetchCalendar()
+    fetchCount()
+    isInitialMount.current = false
   }, [])
 
-  const fetchEmails = async (pageToken?: string) => {
+  useEffect(() => {
+    if (isInitialMount.current) return
+    setEmails([])
+    setNextPageToken("")
+    setPageStack([])
+    setIsLoading(true)
+    if (searchQuery.trim()) {
+      fetchEmails(searchQuery)
+    } else if (activeNav === "Inbox") {
+      const query = `category:${activeTab.toLowerCase()}`
+      fetchEmails(query)
+      fetchCount(query)
+    } else {
+      const navItem = sidebarNav.find((n) => n.label === activeNav)
+      const query = navItem?.query ?? "category:primary"
+      fetchEmails(query)
+      fetchCount(query)
+    }
+  }, [activeTab, activeNav])
+
+  const fetchEmails = async (gmailQuery: string = "category:primary", pageToken?: string) => {
     try {
-      const url = pageToken ? `/api/emails?nextPageToken=${pageToken}` : "/api/emails"
-      const response = await fetch(url)
+      const params = new URLSearchParams({ q: gmailQuery })
+      if (pageToken) params.set("nextPageToken", pageToken)
+      const response = await fetch(`/api/emails?${params.toString()}`)
       const data = await response.json()
-      if (pageToken) {
-        setEmails((prev) => [...prev, ...(data?.emails ?? [])])
-      } else {
-        setEmails(data?.emails ?? [])
-      }
+      setEmails(data?.emails ?? [])
       setNextPageToken(data?.nextPageToken ?? "")
     } catch (error) {
       console.error("Failed to fetch emails:", error)
     } finally {
       setIsLoading(false)
-      setIsLoadingMore(false)
+      setIsPaginating(false)
     }
   }
 
@@ -117,6 +141,38 @@ export default function InboxPage() {
     } catch (error) {
       console.error("Failed to fetch calendar:", error)
     }
+  }
+
+  const fetchCount = async (query: string = "") => {
+    try {
+      const params = query ? new URLSearchParams({ q: query }) : ""
+      const response = await fetch(`/api/emails/count${params ? `?${params}` : ""}`)
+      const data = await response.json()
+      setTotalCount(data?.total ?? 0)
+    } catch (error) {
+      console.error("Failed to fetch count:", error)
+    }
+  }
+
+  const getCurrentQuery = () => {
+    if (activeNav === "Inbox") return `category:${activeTab.toLowerCase()}`
+    return sidebarNav.find((n) => n.label === activeNav)?.query ?? "category:primary"
+  }
+
+  const goToNextPage = () => {
+    if (!nextPageToken || isPaginating) return
+    setPageStack((prev) => [...prev, { emails, token: nextPageToken }])
+    setIsPaginating(true)
+    fetchEmails(getCurrentQuery(), nextPageToken)
+  }
+
+  const goToPrevPage = () => {
+    if (pageStack.length === 0 || isPaginating) return
+    const newStack = [...pageStack]
+    const prev = newStack.pop()!
+    setPageStack(newStack)
+    setEmails(prev.emails)
+    setNextPageToken(prev.token)
   }
 
   const handleDragStart = (e: React.MouseEvent) => {
@@ -147,19 +203,11 @@ export default function InboxPage() {
 
   useEffect(() => {
     return () => {
+      clearTimeout(searchDebounce.current ?? undefined)
       document.removeEventListener("mousemove", handleDragMove)
       document.removeEventListener("mouseup", handleDragEnd)
     }
   }, [handleDragMove, handleDragEnd])
-
-  const handleScroll = useCallback(() => {
-    const list = listRef.current
-    if (!list || isLoadingMore || !nextPageToken) return
-    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 100) {
-      setIsLoadingMore(true)
-      fetchEmails(nextPageToken)
-    }
-  }, [isLoadingMore, nextPageToken])
 
   const unreadCount = emails.filter((e) => e.unread).length
 
@@ -167,6 +215,33 @@ export default function InboxPage() {
     setSelectedEmails((prev) =>
       prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
     )
+  }
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    clearTimeout(searchDebounce.current ?? undefined)
+    if (!query.trim()) {
+      const navItem = sidebarNav.find((n) => n.label === activeNav)
+      const fallback = activeNav === "Inbox" ? `category:${activeTab.toLowerCase()}` : (navItem?.query ?? "category:primary")
+      fetchEmails(fallback)
+      return
+    }
+    searchDebounce.current = setTimeout(async () => {
+      try {
+        setIsLoading(true)
+        setEmails([])
+        setNextPageToken("")
+        setPageStack([])
+        const params = new URLSearchParams({ q: query })
+        const response = await fetch(`/api/emails/search?${params.toString()}`)
+        const data = await response.json()
+        setEmails(data?.emails ?? [])
+      } catch (error) {
+        console.error("Failed to search emails:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }, 300)
   }
 
   const handleSelectEmail = (email: Email) => {
@@ -194,7 +269,7 @@ export default function InboxPage() {
       <TopNav selectedValue="Inbox" />
       <div className="flex flex-1 overflow-y-hidden">
         {/* Left Sidebar */}
-        <aside className="flex w-60 flex-col border-r bg-white">
+        <aside className="flex h-full w-60 shrink-0 flex-col overflow-hidden border-r bg-white">
           <div className="p-4">
             <button className="flex w-full items-center justify-center gap-2 rounded-full bg-black px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800">
               <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -208,7 +283,16 @@ export default function InboxPage() {
             {sidebarNav.map((item) => (
               <button
                 key={item.label}
-                onClick={() => setActiveNav(item.label)}
+                onClick={() => {
+                  if (item.label === "More") return
+                  setActiveNav(item.label)
+                  setActiveTab("Primary")
+                  setSearchQuery("")
+                  setEmails([])
+                  setNextPageToken("")
+                  setIsLoading(true)
+                  fetchEmails(item.query)
+                }}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                   activeNav === item.label
@@ -249,7 +333,7 @@ export default function InboxPage() {
         {/* Main Content */}
         <main className="flex flex-1 flex-col overflow-hidden">
           {/* Toolbar */}
-          <div className="flex items-center justify-between border-b px-4 py-2">
+          <div className="flex shrink-0 items-center justify-between border-b px-4 py-2">
             <div className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -270,15 +354,35 @@ export default function InboxPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                 </svg>
               </button>
+              <div className="relative ml-2">
+                <svg className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search mail"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  className="h-8 w-56 rounded-full border bg-gray-50 pl-9 pr-3 text-sm outline-none focus:border-gray-400 focus:bg-white"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-500">
-              <span>{isLoading ? "Loading..." : `1-${emails.length} of ${emails.length}`}</span>
-              <button className="text-gray-400 hover:text-gray-600">
+              <span>{isLoading ? "Loading..." : `${pageStack.length * 20 + 1}-${pageStack.length * 20 + emails.length} of ${totalCount.toLocaleString()}`}</span>
+              <button
+                onClick={goToPrevPage}
+                disabled={pageStack.length === 0}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:hover:text-gray-400"
+              >
                 <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                 </svg>
               </button>
-              <button className="text-gray-400 hover:text-gray-600">
+              <button
+                onClick={goToNextPage}
+                disabled={!nextPageToken}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:hover:text-gray-400"
+              >
                 <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                 </svg>
@@ -287,16 +391,21 @@ export default function InboxPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex items-center gap-6 border-b px-4">
+          <div className="flex shrink-0 items-center gap-6 border-b px-4">
             {tabs.map((tab) => (
               <button
                 key={tab.label}
-                onClick={() => setActiveTab(tab.label)}
+                onClick={() => {
+                  if (activeNav !== "Inbox") return
+                  setSearchQuery("")
+                  setActiveTab(tab.label)
+                }}
                 className={cn(
                   "flex items-center gap-2 border-b-2 py-3 text-sm transition-colors",
-                  activeTab === tab.label
+                  activeTab === tab.label && activeNav === "Inbox"
                     ? "border-black font-medium text-black"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                    : "border-transparent text-gray-500 hover:text-gray-700",
+                  activeNav !== "Inbox" && "pointer-events-none opacity-40"
                 )}
               >
                 {tab.icon && <SidebarIcon icon={tab.icon} />}
@@ -306,7 +415,7 @@ export default function InboxPage() {
           </div>
 
           {/* Email List */}
-          {isLoading ? (
+          {isLoading || isPaginating ? (
             <EmailListSkeleton />
           ) : emails.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center text-gray-400">
@@ -317,7 +426,7 @@ export default function InboxPage() {
               <p className="text-xs">Connect your Gmail to see your inbox</p>
             </div>
           ) : (
-            <div ref={listRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto">
               {emails.map((email) => (
                 <div
                   key={email.id}
@@ -326,7 +435,7 @@ export default function InboxPage() {
                   onClick={() => handleSelectEmail(email)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSelectEmail(email) } }}
                   className={cn(
-                    "flex w-full cursor-pointer items-center gap-3 border-b px-4 py-2.5 text-left transition-colors hover:bg-gray-50",
+                    "flex w-full cursor-pointer items-center gap-3 overflow-hidden border-b px-4 py-2.5 text-left transition-colors hover:bg-gray-50",
                     email.unread && "bg-gray-50/50",
                     selectedEmail?.id === email.id && "bg-blue-50"
                   )}
@@ -349,7 +458,7 @@ export default function InboxPage() {
                   <span className={cn("w-44 truncate text-sm", email.unread ? "font-semibold" : "text-gray-700")}>
                     {formatSender(email.sender)}
                   </span>
-                  <span className="flex-1 truncate text-sm text-gray-600">
+                  <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
                     <span className="font-medium text-gray-800">{email.subject}</span>
                     {email.snippet?.trim() ? <span className="ml-1 text-gray-400">- {email.snippet.trim()}</span> : null}
                   </span>
@@ -361,25 +470,20 @@ export default function InboxPage() {
                   <span className="w-fit shrink-0 text-right text-xs text-gray-400">{formatEmailTime(email.time)}</span>
                 </div>
               ))}
-              {isLoadingMore && (
-                <div className="flex items-center justify-center py-4">
-                  <div className="size-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-                </div>
-              )}
             </div>
           )}
         </main>
 
         {/* Right Panel - Email Detail or Karya AI */}
-          <div className="relative hidden h-dvh flex-col overflow-y-auto border-l bg-white lg:flex" style={{ width: panelWidth }}>
+          <div className="relative hidden min-h-0 flex-col overflow-hidden border-l bg-white lg:flex" style={{ width: panelWidth }}>
             {/* Drag Handle */}
             <div
               onMouseDown={handleDragStart}
-              className="group absolute left-0 top-0 z-10 flex h-dvh w-1 cursor-col-resize items-center justify-center hover:bg-gray-200"
+              className="group absolute left-0 top-0 z-10 flex h-full w-1 cursor-col-resize items-center justify-center hover:bg-gray-200"
             >
               <div className="h-8 w-0.5 rounded-full bg-gray-300 group-hover:bg-gray-500" />
             </div>
-            <CommandPanel
+            <InboxCommandPanel
               emails={emails.map((e) => ({ id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet }))}
               events={allEvents.map((e) => ({ title: e.title, date: e.date, startTime: e.startTime, endTime: e.endTime }))}
             />
