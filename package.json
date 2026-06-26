@@ -16,6 +16,7 @@
     "@corsair-dev/mcp": "^0.1.22",
     "@neondatabase/serverless": "^1.1.0",
     "@openai/agents": "^0.11.7",
+    "@tanstack/react-query": "^5.101.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "corsair": "^0.1.75",

@@ -1,25 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { TopNav } from "../../components/top-nav"
-import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
-
-interface EmailDetail {
-    id: string
-    threadId: string
-    sender: string
-    to: string
-    subject: string
-    date: string
-    snippet: string
-    body: string
-    bodyHtml?: string
-    attachments: { filename: string; mimeType: string; size: number; attachmentId: string }[]
-    labels: string[]
-    isCalendar: boolean
-}
+import { useEmailDetail } from "@/hooks/use-emails"
 
 function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
@@ -38,26 +22,7 @@ function getFileIcon(mimeType: string) {
 export default function EmailDetailPage() {
     const params = useParams()
     const router = useRouter()
-    const [email, setEmail] = useState<EmailDetail | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
-
-    useEffect(() => {
-        if (params.id) {
-            fetchEmail(params.id as string)
-        }
-    }, [params.id])
-
-    const fetchEmail = async (id: string) => {
-        try {
-            const response = await fetch(`/api/emails/${id}`)
-            const data = await response.json()
-            setEmail(data)
-        } catch (err) {
-            console.error("Failed to fetch email:", err)
-        } finally {
-            setIsLoading(false)
-        }
-    }
+    const { data: email, isLoading } = useEmailDetail(params.id as string)
 
     const parseSender = (sender: string) => {
         const match = sender.match(/^([^<]+)\s*<([^>]+)>/)

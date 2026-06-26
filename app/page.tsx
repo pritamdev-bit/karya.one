@@ -10,14 +10,10 @@ import {
   AlertTriangle,
   Send,
   Trash2,
-  MoreHorizontal,
   Expand,
-  Paperclip,
-  Reply,
-  Forward,
   Clock,
-  MessageSquare,
 } from "lucide-react";
+import { HeroBackground } from "@/components/hero-background";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -154,8 +150,9 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-20 pb-16 px-6">
-        <div className="max-w-4xl mx-auto text-center">
+      <section className="relative pt-20 pb-16 px-6">
+        <HeroBackground />
+        <div className="relative max-w-4xl mx-auto text-center">
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.1] mb-6">
             Use Gmail and Calendar
             <br />

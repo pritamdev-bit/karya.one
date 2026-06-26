@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
+import { QueryProvider } from "@/lib/query-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -87,7 +88,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider>
-          {children}
+          <QueryProvider>
+            {children}
+          </QueryProvider>
         </ClerkProvider>
       </body>
     </html>

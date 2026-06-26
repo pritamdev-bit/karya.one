@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation"
 import { TopNav } from "../components/top-nav"
 import { InboxCommandPanel } from "../components/inbox-command-panel"
 import { cn } from "@/lib/utils"
-import type { Email, CalendarEvent } from "../components/types"
+import type { Email } from "../components/types"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useEmails, useEmailCount, useCalendarEvents, useEmailSearch } from "@/hooks/use-emails"
 
 const PANEL_MIN = 280
 const PANEL_MAX = 600
@@ -70,109 +71,111 @@ function EmailListSkeleton() {
 }
 
 export default function InboxPage() {
-  const [emails, setEmails] = useState<Email[]>([])
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("Primary")
   const [activeNav, setActiveNav] = useState("Inbox")
   const [selectedEmails, setSelectedEmails] = useState<string[]>([])
-  const [nextPageToken, setNextPageToken] = useState<string>("")
-  const [pageStack, setPageStack] = useState<{ emails: Email[]; token: string }[]>([])
-  const [isPaginating, setIsPaginating] = useState(false)
-  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([])
-  const [totalCount, setTotalCount] = useState(0)
+  const [pageStack, setPageStack] = useState<{ query: string; token: string }[]>([])
+  const [pageToken, setPageToken] = useState("")
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT)
+  const [searchInput, setSearchInput] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const isDragging = useRef(false)
   const startX = useRef(0)
   const startWidth = useRef(PANEL_DEFAULT)
   const router = useRouter()
-  const isInitialMount = useRef(true)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    fetchEmails("category:primary")
-    fetchCalendar()
-    fetchCount()
-    isInitialMount.current = false
-  }, [])
+  const currentQuery = searchQuery
+    ? searchQuery
+    : activeNav === "Inbox"
+      ? `category:${activeTab.toLowerCase()}`
+      : (sidebarNav.find((n) => n.label === activeNav)?.query ?? "category:primary")
 
-  useEffect(() => {
-    if (isInitialMount.current) return
-    setEmails([])
-    setNextPageToken("")
+  const { data: emailsData, isLoading: isLoadingEmails } = useEmails(currentQuery, pageToken || undefined)
+  const { data: countData } = useEmailCount(currentQuery)
+  const { data: calendarData } = useCalendarEvents()
+  const { data: searchData, isLoading: isSearching } = useEmailSearch(searchQuery)
+
+  const isSearchMode = searchQuery.trim().length > 0
+  const emails = isSearchMode ? (searchData?.emails ?? []) : (emailsData?.emails ?? [])
+  const isLoading = isSearchMode ? isSearching : isLoadingEmails
+  const allEvents = calendarData?.events ?? []
+  const totalCount = countData?.total ?? 0
+  const unreadCount = emails.filter((e) => e.unread).length
+
+  const handleNavChange = (label: string) => {
+    setActiveNav(label)
+    setActiveTab("Primary")
+    setSearchInput("")
+    setSearchQuery("")
+    setPageToken("")
     setPageStack([])
-    setIsLoading(true)
-    if (searchQuery.trim()) {
-      fetchEmails(searchQuery)
-    } else if (activeNav === "Inbox") {
-      const query = `category:${activeTab.toLowerCase()}`
-      fetchEmails(query)
-      fetchCount(query)
-    } else {
-      const navItem = sidebarNav.find((n) => n.label === activeNav)
-      const query = navItem?.query ?? "category:primary"
-      fetchEmails(query)
-      fetchCount(query)
-    }
-  }, [activeTab, activeNav])
-
-  const fetchEmails = async (gmailQuery: string = "category:primary", pageToken?: string) => {
-    try {
-      const params = new URLSearchParams({ q: gmailQuery })
-      if (pageToken) params.set("nextPageToken", pageToken)
-      const response = await fetch(`/api/emails?${params.toString()}`)
-      const data = await response.json()
-      setEmails(data?.emails ?? [])
-      setNextPageToken(data?.nextPageToken ?? "")
-    } catch (error) {
-      console.error("Failed to fetch emails:", error)
-    } finally {
-      setIsLoading(false)
-      setIsPaginating(false)
-    }
   }
 
-  const fetchCalendar = async () => {
-    try {
-      const response = await fetch("/api/calendar")
-      const data = await response.json()
-      setAllEvents(data?.events ?? [])
-    } catch (error) {
-      console.error("Failed to fetch calendar:", error)
-    }
-  }
-
-  const fetchCount = async (query: string = "") => {
-    try {
-      const params = query ? new URLSearchParams({ q: query }) : ""
-      const response = await fetch(`/api/emails/count${params ? `?${params}` : ""}`)
-      const data = await response.json()
-      setTotalCount(data?.total ?? 0)
-    } catch (error) {
-      console.error("Failed to fetch count:", error)
-    }
-  }
-
-  const getCurrentQuery = () => {
-    if (activeNav === "Inbox") return `category:${activeTab.toLowerCase()}`
-    return sidebarNav.find((n) => n.label === activeNav)?.query ?? "category:primary"
+  const handleTabChange = (label: string) => {
+    if (activeNav !== "Inbox") return
+    setSearchInput("")
+    setSearchQuery("")
+    setActiveTab(label)
+    setPageToken("")
+    setPageStack([])
   }
 
   const goToNextPage = () => {
-    if (!nextPageToken || isPaginating) return
-    setPageStack((prev) => [...prev, { emails, token: nextPageToken }])
-    setIsPaginating(true)
-    fetchEmails(getCurrentQuery(), nextPageToken)
+    const nextToken = emailsData?.nextPageToken
+    if (!nextToken) return
+    setPageStack((prev) => [...prev, { query: currentQuery, token: pageToken }])
+    setPageToken(nextToken)
   }
 
   const goToPrevPage = () => {
-    if (pageStack.length === 0 || isPaginating) return
+    if (pageStack.length === 0) return
     const newStack = [...pageStack]
     const prev = newStack.pop()!
     setPageStack(newStack)
-    setEmails(prev.emails)
-    setNextPageToken(prev.token)
+    setPageToken(prev.token)
+  }
+
+  const handleSearch = (value: string) => {
+    setSearchInput(value)
+    clearTimeout(searchDebounce.current ?? undefined)
+    if (!value.trim()) {
+      setSearchQuery("")
+      setPageToken("")
+      setPageStack([])
+      return
+    }
+    searchDebounce.current = setTimeout(() => {
+      setSearchQuery(value)
+      setPageToken("")
+      setPageStack([])
+    }, 300)
+  }
+
+  const handleSelectEmail = (email: Email) => {
+    router.push(`/inbox/${email.id}`)
+  }
+
+  const toggleEmail = (id: string) => {
+    setSelectedEmails((prev) =>
+      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
+    )
+  }
+
+  const formatSender = (sender: string) => {
+    if (!sender) return "Unknown"
+    const match = sender.match(/^([^<]+)</)
+    return match ? match[1].trim() : sender
+  }
+
+  const formatEmailTime = (time: string) => {
+    const date = new Date(time)
+    const now = new Date()
+    const isToday = date.toDateString() === now.toDateString()
+    if (isToday) {
+      return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    }
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
   }
 
   const handleDragStart = (e: React.MouseEvent) => {
@@ -209,61 +212,6 @@ export default function InboxPage() {
     }
   }, [handleDragMove, handleDragEnd])
 
-  const unreadCount = emails.filter((e) => e.unread).length
-
-  const toggleEmail = (id: string) => {
-    setSelectedEmails((prev) =>
-      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
-    )
-  }
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query)
-    clearTimeout(searchDebounce.current ?? undefined)
-    if (!query.trim()) {
-      const navItem = sidebarNav.find((n) => n.label === activeNav)
-      const fallback = activeNav === "Inbox" ? `category:${activeTab.toLowerCase()}` : (navItem?.query ?? "category:primary")
-      fetchEmails(fallback)
-      return
-    }
-    searchDebounce.current = setTimeout(async () => {
-      try {
-        setIsLoading(true)
-        setEmails([])
-        setNextPageToken("")
-        setPageStack([])
-        const params = new URLSearchParams({ q: query })
-        const response = await fetch(`/api/emails/search?${params.toString()}`)
-        const data = await response.json()
-        setEmails(data?.emails ?? [])
-      } catch (error) {
-        console.error("Failed to search emails:", error)
-      } finally {
-        setIsLoading(false)
-      }
-    }, 300)
-  }
-
-  const handleSelectEmail = (email: Email) => {
-    router.push(`/inbox/${email.id}`)
-  }
-
-  const formatSender = (sender: string) => {
-    if (!sender) return "Unknown"
-    const match = sender.match(/^([^<]+)</)
-    return match ? match[1].trim() : sender
-  }
-
-  const formatEmailTime = (time: string) => {
-    const date = new Date(time)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    if (isToday) {
-      return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    }
-    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  }
-
   return (
     <div className="flex h-screen flex-col bg-white overflow-y-hidden">
       <TopNav selectedValue="Inbox" />
@@ -285,13 +233,7 @@ export default function InboxPage() {
                 key={item.label}
                 onClick={() => {
                   if (item.label === "More") return
-                  setActiveNav(item.label)
-                  setActiveTab("Primary")
-                  setSearchQuery("")
-                  setEmails([])
-                  setNextPageToken("")
-                  setIsLoading(true)
-                  fetchEmails(item.query)
+                  handleNavChange(item.label)
                 }}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -361,7 +303,7 @@ export default function InboxPage() {
                 <input
                   type="text"
                   placeholder="Search mail"
-                  value={searchQuery}
+                  value={searchInput}
                   onChange={(e) => handleSearch(e.target.value)}
                   className="h-8 w-56 rounded-full border bg-gray-50 pl-9 pr-3 text-sm outline-none focus:border-gray-400 focus:bg-white"
                 />
@@ -380,7 +322,7 @@ export default function InboxPage() {
               </button>
               <button
                 onClick={goToNextPage}
-                disabled={!nextPageToken}
+                disabled={!emailsData?.nextPageToken}
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:hover:text-gray-400"
               >
                 <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -395,11 +337,7 @@ export default function InboxPage() {
             {tabs.map((tab) => (
               <button
                 key={tab.label}
-                onClick={() => {
-                  if (activeNav !== "Inbox") return
-                  setSearchQuery("")
-                  setActiveTab(tab.label)
-                }}
+                onClick={() => handleTabChange(tab.label)}
                 className={cn(
                   "flex items-center gap-2 border-b-2 py-3 text-sm transition-colors",
                   activeTab === tab.label && activeNav === "Inbox"
@@ -415,7 +353,7 @@ export default function InboxPage() {
           </div>
 
           {/* Email List */}
-          {isLoading || isPaginating ? (
+          {isLoading ? (
             <EmailListSkeleton />
           ) : emails.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center text-gray-400">
@@ -436,8 +374,7 @@ export default function InboxPage() {
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSelectEmail(email) } }}
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-3 overflow-hidden border-b px-4 py-2.5 text-left transition-colors hover:bg-gray-50",
-                    email.unread && "bg-gray-50/50",
-                    selectedEmail?.id === email.id && "bg-blue-50"
+                    email.unread && "bg-gray-50/50"
                   )}
                 >
                   <input

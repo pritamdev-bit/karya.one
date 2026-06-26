@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const navItems = ["Dashboard", "Inbox", "Calendar", "Compose"]
+const navItems = ["Dashboard", "Inbox", "Calendar"]
 
 export function TopNav({ selectedValue }: { selectedValue: string }) {
   const { user } = useUser();
